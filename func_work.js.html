@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>func/annotation.js - Documentation</title>
+    <title>func/work.js - Documentation</title>
 
     <script src="scripts/prettify/prettify.js"></script>
     <script src="scripts/prettify/lang-css.js"></script>
@@ -29,7 +29,7 @@
 
 <div id="main">
     
-    <h1 class="page-title">func/annotation.js</h1>
+    <h1 class="page-title">func/work.js</h1>
     
 
     
@@ -44,12 +44,10 @@
 Object.defineProperty(exports, "__esModule", {
   value: true
 });
-exports.updateAnnotation = updateAnnotation;
+exports.loadAuthorNames = loadAuthorNames;
 /*
- * Adapted from bookbrainz-site
- * Copyright (C) 2016  Sean Burke
- *               2016  Ben Ockmore
- *               2018 Shivam Tripathi
+ * Copyright (C) 2022  Shivam Awasthi
+ * Some parts adapted from bookbrainz-site
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -64,33 +62,43 @@ exports.updateAnnotation = updateAnnotation;
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+*/
 
 /**
- * @param  {Object} orm - Bookbrainz orm wrapper holding all models
- * @param  {Transaction} transacting - The present knex transacting object
- * @param  {Object} oldAnnotation - The old annotation object
- * @param  {string} newContent - New annotation to be set
- * @param  {Object} revision - The present revision object
- * @returns {Promise&lt;Object>} - Returns Annotation object
- */
-function updateAnnotation(orm, transacting, oldAnnotation, newContent, revision) {
-  const {
-    Annotation
-  } = orm;
-  const oldContent = oldAnnotation &amp;&amp; oldAnnotation.get('content');
-  if (newContent === oldContent) {
-    return Promise.resolve(oldAnnotation);
+ * @param  {object} orm - the BookBrainz ORM, initialized during app setup
+ * @param  {array} workBBIDs - the array containing the BBIDs of the works contained in the edition
+ * @returns {Object} - Returns an array of objects containing the authorAlias, authorBBID of each work in an edition
+*/
+async function loadAuthorNames(orm, workBBIDs) {
+  if (!workBBIDs.length) {
+    return [];
   }
-  if (newContent) {
-    return new Annotation({
-      content: newContent,
-      lastRevisionId: revision.get('id')
-    }).save(null, {
-      transacting
-    });
-  }
-  return Promise.resolve(null);
+  const sqlQuery = `select
+		author.bbid as authorBBID,
+		alias."name" as authorAlias,
+		work.bbid as workBBID
+		from
+			bookbrainz.work as work
+		-- Get Authors related to Work (relationship type 8, Author wrote Work)
+		left join bookbrainz.relationship_set as workRelSet on
+			workRelSet.id = work.relationship_set_id
+		left join bookbrainz.relationship_set__relationship as workRelSetRel on
+			workRelSetRel.set_id = workRelSet.id
+		inner join bookbrainz.relationship as workRel on
+			workRel.type_id = 8
+			and workRel.id = workRelSetRel.relationship_id
+		left join bookbrainz.author as author on
+			author.bbid = workRel.source_bbid
+			and author.master is true
+		-- Get defaultAlias of the Authors
+		left join bookbrainz.alias on
+			alias.id = author.default_alias_id 
+		where
+			work.master is true
+			and work.data_id is not null
+			and work.bbid in ${`(${workBBIDs.map(bbid => `'${bbid}'`).join(', ')})`}`;
+  const queryResults = await orm.bookshelf.knex.raw(sqlQuery);
+  return queryResults.rows;
 }</code></pre>
         </article>
     </section>
